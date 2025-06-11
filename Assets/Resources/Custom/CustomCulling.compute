@@ -1,0 +1,54 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+#define RADIUS 30
+
+struct InstanceData
+{
+    float4x4 worldMatrix;
+};
+
+uint _TransformCount;
+float4 _GlobalBoundsCentre;
+RWStructuredBuffer<InstanceData> _InstanceBuffer; // in
+AppendStructuredBuffer<InstanceData> _CullingBuffer; // out
+
+StructuredBuffer<float4> _FrustumBuffer;
+
+cbuffer InstanceBounds
+{
+    float4 _MinBounds;
+    float4 _MaxBounds;
+};
+
+bool IsInsideFrustum(float3 position)
+{
+    for (int i = 0; i < 6; i++)
+    {
+        float4 plane = _FrustumBuffer[i];
+        if (dot(float4(position, 1.0), plane) < -RADIUS)
+            return false;
+    }
+    return true;
+}
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _TransformCount)
+    {
+        InstanceData instance = _InstanceBuffer[id.x];
+        float3 worldPosition = instance.worldMatrix._14_24_34; // extract world pos
+
+        if (IsInsideFrustum(worldPosition))
+        {
+            float3 centre = _GlobalBoundsCentre.xyz;
+            float3 movedWorldPos = worldPosition - centre;
+            
+            instance.worldMatrix._14 = movedWorldPos.x;
+            instance.worldMatrix._24 = movedWorldPos.y;
+            instance.worldMatrix._34 = movedWorldPos.z;
+            _CullingBuffer.Append(instance); // add instances within frustum
+        }
+    }
+}
