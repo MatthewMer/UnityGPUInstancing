@@ -5,11 +5,13 @@ using UnityEngine.Rendering;
 using System.Linq;
 using Custom.GraphicsBuffer;
 using Custom.GraphicsBufferPool;
-using Custom.ObjectAtlas;
+using Custom.Concurrent;
+using Custom.Atlas;
 
 namespace Custom
 {
-    namespace Rendering { 
+    namespace Rendering
+    {
 
         public interface IInstanceProvider<TexternKey, Ttype, TinstanceKey>
             where TinstanceKey : IInstanceKey<TinstanceKey>
@@ -283,6 +285,8 @@ namespace Custom
 
             private const int k_ArgsStride = sizeof(uint) * 5;
             private const ComputeBufferType k_ArgsBufferType = ComputeBufferType.IndirectArguments;
+            private const int k_ArgsTtl = 60;
+            private const BufferMode k_ArgsBufferMode = BufferMode.Precise;
 
             private const int k_InstanceStride = sizeof(float) * 16; // Matrix4x4 = 16 floats
             private const ComputeBufferType k_InstanceBufferType = ComputeBufferType.Structured;
@@ -292,7 +296,7 @@ namespace Custom
             private readonly ComputeBufferPool m_InstanceBufferPool;
             private readonly ComputeBufferPool m_CullingBufferPool;
 
-            public CustomRenderer(Ttype type, ICustomObjectAtlas<Ttype, TinstanceKey> objectAtlas, int baseSize, BufferMode mode, int batchSize, ShaderPropertySet propertySet = null)
+            public CustomRenderer(Ttype type, ICustomObjectAtlas<Ttype, TinstanceKey> objectAtlas, int baseSize, BufferMode mode, int batchSize, int ttl, ShaderPropertySet propertySet = null)
             {
                 m_Type = type;
                 m_Atlas = objectAtlas;
@@ -302,7 +306,9 @@ namespace Custom
                 {
                     baseSize = 1,
                     stride = k_ArgsStride,
-                    type = k_ArgsBufferType
+                    type = k_ArgsBufferType,
+                    mode = k_ArgsBufferMode,
+                    ttl = k_ArgsTtl
                 });
                 m_InstanceBufferPool = new ComputeBufferPool(new ComputeBufferPoolParams()
                 {
@@ -310,7 +316,8 @@ namespace Custom
                     stride = k_InstanceStride,
                     type = k_InstanceBufferType,
                     mode = mode,
-                    batchSize = batchSize
+                    batchSize = batchSize,
+                    ttl = ttl
                 });
                 m_CullingBufferPool = new ComputeBufferPool(new ComputeBufferPoolParams()
                 {
@@ -318,7 +325,8 @@ namespace Custom
                     stride = k_InstanceStride,
                     type = k_CullingBufferType,
                     mode = mode,
-                    batchSize = batchSize
+                    batchSize = batchSize,
+                    ttl = ttl
                 });
 
                 m_CommandQueue = new CommandQueueAutoFlush(CommandQueue.FlushMode.Background, UpdateRenderData);

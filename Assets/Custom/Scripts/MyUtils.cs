@@ -16,7 +16,6 @@ public static class MyUtils
 
         Mesh mesh = null;
 
-        // Mesh aus MeshFilter oder SkinnedMeshRenderer holen
         if (renderer is MeshRenderer)
         {
             MeshFilter filter = renderer.GetComponent<MeshFilter>();
@@ -49,7 +48,6 @@ public static class MyUtils
             return null;
         }
 
-        // **WICHTIG:** Nur verwendete Vertices extrahieren!
         int[] submeshTriangles = mesh.GetTriangles(submeshIndex);
         HashSet<int> usedVertexIndices = new HashSet<int>(submeshTriangles);
 
@@ -71,14 +69,12 @@ public static class MyUtils
             if (allUVs.Length > 0) newUVs.Add(allUVs[oldIndex]);
         }
 
-        // **Indizes neu mappen**
         List<int> newTriangles = new List<int>();
         foreach (int oldIndex in submeshTriangles)
         {
             newTriangles.Add(vertexMap[oldIndex]);
         }
 
-        // Neues Mesh erstellen
         Mesh submesh = new Mesh
         {
             vertices = newVertices.ToArray(),

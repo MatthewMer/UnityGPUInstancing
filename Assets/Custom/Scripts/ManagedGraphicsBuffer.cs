@@ -1,22 +1,26 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using Unity.Collections;
 using UnityEngine;
+using UnityEngine.Rendering.RenderGraphModule;
 
 namespace Custom
 {
     namespace GraphicsBuffer
     {
-        public interface IGraphicsBuffer<Tdesc> : IDisposable
+        public interface IManagedBuffer<Tdesc> : IDisposable, IEquatable<IManagedBuffer<Tdesc>>
         {
             public Tdesc Descriptor { get; }
         }
 
-        public abstract class ManagedGraphicsBuffer<Tbuffer, Tdesc> : IGraphicsBuffer<Tdesc>
+        public abstract class ManagedGraphicsBuffer<Tbuffer, Tdesc> : IManagedBuffer<Tdesc>
+            where Tbuffer : class
         {
             protected Tbuffer m_Buffer;
-            public Tbuffer Buffer => m_Buffer;
             protected readonly Tdesc m_Descriptor;
+
+            public Tbuffer Buffer => m_Buffer;
             public Tdesc Descriptor => m_Descriptor;
 
             protected bool m_Disposed = false;
@@ -28,13 +32,43 @@ namespace Custom
             }
 
             public abstract void Dispose();
+
+            public bool Equals(IManagedBuffer<Tdesc> other)
+            {
+                if (ReferenceEquals(this, other)) return true;
+                if (other == null) return false;
+
+                if (other is ManagedGraphicsBuffer<Tbuffer, Tdesc> otherBuffer)
+                {
+                    return ReferenceEquals(m_Buffer, otherBuffer.m_Buffer);
+                }
+                return false;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return Equals(obj as IManagedBuffer<Tdesc>);
+            }
+
+            public override int GetHashCode()
+            {
+                return m_Buffer?.GetHashCode() ?? 0;
+            }
         }
 
-        public struct ComputeBufferDescriptor
+        public struct ComputeBufferDescriptor : IEquatable<ComputeBufferDescriptor>
         {
             public int count;
             public int stride;
             public ComputeBufferType type;
+
+            public bool Equals(ComputeBufferDescriptor other)
+            {
+                return
+                    count == other.count &&
+                    stride == other.stride &&
+                    type == other.type;
+            }
         }
 
         public class ManagedComputeBuffer : ManagedGraphicsBuffer<ComputeBuffer, ComputeBufferDescriptor>

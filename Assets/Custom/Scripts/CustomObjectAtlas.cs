@@ -5,7 +5,7 @@ using UnityMeshSimplifier;
 
 namespace Custom
 {
-    namespace ObjectAtlas
+    namespace Atlas
     {
         public interface IInstanceKey<Tderived> : IEquatable<Tderived>
         {

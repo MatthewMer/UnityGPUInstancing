@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Custom.GraphicsBuffer;
 using System;
 using UnityEngine;
+using Unity.VisualScripting;
 
 namespace Custom
 {
@@ -13,33 +14,53 @@ namespace Custom
             Batched
         }
 
-        public abstract class GraphicsBufferPool<Tbuffer, Tdesc> : IDisposable 
-            where Tbuffer : IGraphicsBuffer<Tdesc>
+        public abstract class GraphicsBufferPool<Tbuffer, Tdesc> : IDisposable
+            where Tbuffer : IManagedBuffer<Tdesc>
         {
             public delegate Tbuffer CreateDelegate(Tdesc desc);
             private readonly CreateDelegate m_CreateFunc;
 
             private readonly object m_Lock = new();
-            private readonly TimeSpan m_TTL = TimeSpan.FromSeconds(10);
+            private readonly TimeSpan m_TTL;
+            private readonly System.Threading.Timer m_CleanupTimer;
 
-            private readonly Dictionary<Tdesc, Stack<Tbuffer>> m_Free = new();
-            private readonly List<Tbuffer> m_Reserved = new();
+            private readonly Dictionary<object, Stack<PooledBuffer>> m_Free = new();
+            private readonly HashSet<Tbuffer> m_Reserved = new();
 
-            public GraphicsBufferPool(CreateDelegate createFunc)
+            private class PooledBuffer
+            {
+                public Tbuffer buffer;
+                public DateTime lastUsed;
+            }
+
+            public GraphicsBufferPool(CreateDelegate createFunc, int ttl)
             {
                 m_CreateFunc = createFunc;
+                m_TTL = TimeSpan.FromSeconds(ttl);
+
+                if (ttl > 0)
+                {
+                    m_CleanupTimer = new System.Threading.Timer(CleanupCallback, null, m_TTL, m_TTL);
+                }
             }
 
             protected Tbuffer RentInternal(Tdesc desc)
             {
                 lock (m_Lock)
                 {
+                    Tbuffer buffer;
                     if (m_Free.TryGetValue(desc, out var stack) && stack.Count > 0)
                     {
-                        return stack.Pop();
+                        var pooledBuffer = stack.Pop();
+                        if (stack.Count == 0) m_Free.Remove(desc);
+
+                        buffer = pooledBuffer.buffer;
+                    }
+                    else
+                    {
+                        buffer = m_CreateFunc(desc);
                     }
 
-                    Tbuffer buffer = m_CreateFunc(desc);
                     m_Reserved.Add(buffer);
                     return buffer;
                 }
@@ -49,15 +70,21 @@ namespace Custom
             {
                 lock (m_Lock)
                 {
-                    var desc = buffer.Descriptor;
+                    m_Reserved.Remove(buffer);
 
+                    var desc = buffer.Descriptor;
                     if (!m_Free.TryGetValue(desc, out var stack))
                     {
-                        stack = new Stack<Tbuffer>();
+                        stack = new Stack<PooledBuffer>();
                         m_Free[desc] = stack;
                     }
 
-                    stack.Push(buffer);
+                    PooledBuffer pooledBuffer = new()
+                    {
+                        buffer = buffer,
+                        lastUsed = DateTime.UtcNow
+                    };
+                    stack.Push(pooledBuffer);
                 }
             }
 
@@ -65,21 +92,49 @@ namespace Custom
             {
                 lock (m_Lock)
                 {
-                    foreach(var (desc, stack) in m_Free)
+                    foreach (var (desc, stack) in m_Free)
                     {
-                        while(stack.TryPop(out var buffer))
+                        while (stack.TryPop(out var pooledBuffer))
                         {
-                            buffer.Dispose();
+                            pooledBuffer.buffer.Dispose();
                         }
                         stack.Clear();
                     }
                     m_Free.Clear();
 
-                    foreach(var buffer in m_Reserved)
+                    foreach (var buffer in m_Reserved)
                     {
                         buffer.Dispose();
                     }
                     m_Reserved.Clear();
+                }
+            }
+
+            private void CleanupCallback(object state)
+            {
+                lock (m_Lock)
+                {
+                    var now = DateTime.UtcNow;
+                    foreach (var (desc, stack) in m_Free)
+                    {
+                        if (stack.Count > 0)
+                        {
+                            var stackCopy = new Stack<PooledBuffer>(stack);
+                            stack.Clear();
+
+                            while (stackCopy.TryPop(out var pooledBuffer))
+                            {
+                                if (now - pooledBuffer.lastUsed > m_TTL)
+                                {
+                                    UnityMainThreadDispatcher.EnqueueLateUpdate(pooledBuffer.buffer.Dispose);
+                                }
+                                else
+                                {
+                                    stack.Push(pooledBuffer);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -91,6 +146,7 @@ namespace Custom
             public ComputeBufferType type;
             public BufferMode mode;
             public int batchSize;
+            public int ttl;
         }
 
         public class ComputeBufferPool : GraphicsBufferPool<ManagedComputeBuffer, ComputeBufferDescriptor>
@@ -99,7 +155,7 @@ namespace Custom
             public ComputeBufferPoolParams Params => m_Params;
 
             public ComputeBufferPool(ComputeBufferPoolParams param)
-                : base(Create)
+                : base(Create, param.ttl)
             {
                 m_Params = param;
             }
@@ -111,7 +167,7 @@ namespace Custom
 
             public ManagedComputeBuffer Rent(int count)
             {
-                if(count <= 0) throw new ArgumentOutOfRangeException(nameof(count), "count must be greater than 0");
+                if (count <= 0) throw new ArgumentOutOfRangeException(nameof(count), "count must be greater than 0");
                 count = CeilToBaseSize(count);
 
                 var desc = new ComputeBufferDescriptor()
