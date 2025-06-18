@@ -3,15 +3,15 @@ using UnityEngine;
 using System;
 using UnityEngine.Rendering;
 using System.Linq;
-using Custom.GraphicsBuffer;
-using Custom.GraphicsBufferPool;
+using Custom.BufferPool;
 using Custom.Concurrent;
 using Custom.Atlas;
+using Custom.Threading;
+using Custom.Buffer;
 
 namespace Custom
 {
-    namespace Rendering
-    {
+    namespace Rendering { 
 
         public interface IInstanceProvider<TexternKey, Ttype, TinstanceKey>
             where TinstanceKey : IInstanceKey<TinstanceKey>
@@ -527,7 +527,7 @@ namespace Custom
                         if (renderData.InstanceGroup.Keys.Count() == 0)
                         {
                             lodRenderData.Remove(lod);
-                            UnityMainThreadDispatcher.EnqueueLateUpdate(renderData.Dispose);
+                            UnityMainThreadDispatcher.ScheduleLateUpdate(renderData.Dispose);
 
                             if (lodRenderData.Count() == 0)
                             {
@@ -585,7 +585,7 @@ namespace Custom
                     }
                 }
 
-                UnityMainThreadDispatcher.EnqueueLateUpdate(() =>
+                UnityMainThreadDispatcher.ScheduleLateUpdate(() =>
                 {
                     m_RenderData = newRenderData;
                 });
@@ -648,7 +648,7 @@ namespace Custom
                     m_InstanceBufferPool = instancePool;
                     m_CullingBufferPool = cullingPool;
 
-                    UnityMainThreadDispatcher.EnqueueLateUpdate(() =>
+                    UnityMainThreadDispatcher.ScheduleLateUpdate(() =>
                     {
                         m_SharedMesh = renderer.GetComponent<MeshFilter>().sharedMesh;
                         m_Materials = renderer.sharedMaterials;
@@ -684,16 +684,16 @@ namespace Custom
 
                     int newSize = transforms.Count;
 
-                    UnityMainThreadDispatcher.EnqueueLateUpdate(() =>
+                    if (m_InstanceBuffer == null || m_InstanceBufferPool.NeedsReallocation(m_InstanceBuffer, newSize))
                     {
-                        if (m_InstanceBuffer == null || m_InstanceBufferPool.NeedsReallocation(m_InstanceBuffer, newSize))
-                        {
-                            var instanceBuffer = m_InstanceBufferPool.Rent(newSize);
-                            var cullingBuffer = m_CullingBufferPool.Rent(newSize);
+                        var instanceBuffer = m_InstanceBufferPool.Rent(newSize);
+                        var cullingBuffer = m_CullingBufferPool.Rent(newSize);
 
+                        UnityMainThreadDispatcher.ScheduleLateUpdate(() =>
+                        {
                             instanceBuffer.SetData(transforms);
 
-                            UnityMainThreadDispatcher.EnqueueUpdate(() =>
+                            UnityMainThreadDispatcher.ScheduleUpdate(() =>
                             {
                                 m_GlobalBounds = newBounds;
                                 m_Count = transforms.Count;
@@ -710,19 +710,19 @@ namespace Custom
 
                                 m_MaterialPropertyBlock.SetBuffer(k_CullingBufferId, m_CullingBuffer.Buffer);
                             });
-                        }
-                        else
+                        });
+                    }
+                    else
+                    {
+                        UnityMainThreadDispatcher.ScheduleUpdate(() =>
                         {
-                            UnityMainThreadDispatcher.EnqueueUpdate(() =>
-                            {
-                                m_GlobalBounds = newBounds;
-                                m_Count = transforms.Count;
-                                m_NumGroups = numGroups;
+                            m_GlobalBounds = newBounds;
+                            m_Count = transforms.Count;
+                            m_NumGroups = numGroups;
 
-                                m_InstanceBuffer.SetData(transforms);
-                            });
-                        }
-                    });
+                            m_InstanceBuffer.SetData(transforms);
+                        });
+                    }
                 }
 
                 public void Render(ComputeShader cullingShader)

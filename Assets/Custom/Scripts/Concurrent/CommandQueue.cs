@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
+using Custom.Threading;
 
 namespace Custom
 {
@@ -45,11 +45,44 @@ namespace Custom
             {
                 if (CheckFlush())
                 {
-                    FlushInternal();
+                    DispatchFlush();
                 }
             }
 
-            protected void FlushInternal()
+            private bool CheckFlush()
+            {
+                lock (m_FlushLock)
+                {
+                    if (!m_IsFlushing)
+                    {
+                        m_IsFlushing = true;
+                        return true;
+                    }
+                    else
+                    {
+                        m_FlushRequested = true;
+                        return false;
+                    }
+                }
+            }
+
+            private void DispatchFlush()
+            {
+                switch (m_FlushMode)
+                {
+                    case FlushMode.Update:
+                        UnityMainThreadDispatcher.ScheduleUpdate(FlushInternal);
+                        break;
+                    case FlushMode.LateUpdate:
+                        UnityMainThreadDispatcher.ScheduleLateUpdate(FlushInternal);
+                        break;
+                    case FlushMode.Background:
+                        UnityMainThreadDispatcher.ScheduleLateUpdate(() => UnityWorker.Run(FlushInternal));
+                        break;
+                }
+            }
+
+            private void FlushInternal()
             {
                 lock (m_EnqueueLock) m_ExecuteIndex = 1 - m_ExecuteIndex;
 
@@ -70,39 +103,6 @@ namespace Custom
                     }
                 }
             }
-
-            protected bool CheckFlush()
-            {
-                lock (m_FlushLock)
-                {
-                    if (!m_IsFlushing)
-                    {
-                        m_IsFlushing = true;
-                        return true;
-                    }
-                    else
-                    {
-                        m_FlushRequested = true;
-                        return false;
-                    }
-                }
-            }
-
-            protected void DispatchFlush()
-            {
-                switch (m_FlushMode)
-                {
-                    case FlushMode.Update:
-                        UnityMainThreadDispatcher.EnqueueUpdate(Flush);
-                        break;
-                    case FlushMode.LateUpdate:
-                        UnityMainThreadDispatcher.EnqueueLateUpdate(Flush);
-                        break;
-                    case FlushMode.Background:
-                        UnityMainThreadDispatcher.EnqueueLateUpdate(() => { Task.Run(FlushInternal); });
-                        break;
-                }
-            }
         }
 
         public class CommandQueueAutoFlush : CommandQueue
@@ -115,10 +115,7 @@ namespace Custom
             {
                 base.Enqueue(action);
 
-                if (CheckFlush())
-                {
-                    DispatchFlush();
-                }
+                Flush();
             }
         }
     }
