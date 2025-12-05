@@ -6,7 +6,7 @@ All classes are designed with a focus on modularity, performance, thread safety,
 
 ## Features
 
-- 🚀 High-performance GPU instancing
+- 🚀 High-performance, flawless GPU instancing
 - 📦 Global memory pooling
 - 🧠 Custom buffer management logic
 - 🎯 Designed for large, diverse object sets (e.g., prefabs)
@@ -16,10 +16,12 @@ All classes are designed with a focus on modularity, performance, thread safety,
 Missing:
 - ❌ Occlusion culling
 - ❌ Spatial partitioning
+- ❌ This version is not final and needs some cleanup, I will tackle this in the future
 
 ## Example / Benchmark
 
 ![Benchmark](img/benchmark.png)
+![Runtime Demo](img/GPUInstancingRuntime.mp4)
 
 ## Requirements
 
